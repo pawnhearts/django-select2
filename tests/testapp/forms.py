@@ -51,6 +51,14 @@ class GenreCustomTitleWidget(ModelSelect2Widget):
         return force_str(obj.title).upper()
 
 
+class ArtistDataViewWidget(HeavySelect2Widget):
+    data_view = "heavy_data_1"
+
+
+class PrimaryGenreDataUrlWidget(HeavySelect2Widget):
+    data_url = "/heavy_data_2/"
+
+
 class AlbumSelect2WidgetForm(forms.ModelForm):
     class Meta:
         model = models.Album
@@ -143,11 +151,9 @@ class Select2WidgetForm(forms.Form):
 
 
 class HeavySelect2WidgetForm(forms.Form):
-    artist = forms.ChoiceField(
-        widget=HeavySelect2Widget(data_view="heavy_data_1"), choices=NUMBER_CHOICES
-    )
+    artist = forms.ChoiceField(widget=ArtistDataViewWidget(), choices=NUMBER_CHOICES)
     primary_genre = forms.ChoiceField(
-        widget=HeavySelect2Widget(data_view="heavy_data_2"),
+        widget=PrimaryGenreDataUrlWidget(),
         required=False,
         choices=NUMBER_CHOICES,
     )
@@ -226,3 +232,17 @@ class GroupieForm(forms.ModelForm):
         model = models.Groupie
         fields = "__all__"
         widgets = {"obsession": ArtistCustomTitleWidget}
+
+
+class CityModelSelect2Widget(ModelSelect2Widget):
+    model = City
+    search_fields = ["name"]
+
+    def result_from_instance(self, obj, request):
+        return {"id": obj.pk, "text": obj.name, "country": str(obj.country)}
+
+
+class CityForm(forms.Form):
+    city = forms.ModelChoiceField(
+        queryset=City.objects.all(), widget=CityModelSelect2Widget(), required=False
+    )

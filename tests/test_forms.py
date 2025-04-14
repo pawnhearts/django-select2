@@ -187,6 +187,7 @@ class TestSelect2AdminMixin:
         assert tuple(Select2AdminMixin().media._js) == (
             "admin/js/vendor/select2/select2.full.min.js",
             "admin/js/vendor/select2/i18n/en.js",
+            "admin/js/jquery.init.js",
             "django_select2/django_select2.js",
         )
 
@@ -269,7 +270,9 @@ class TestHeavySelect2Mixin(TestSelect2Mixin):
             in not_required_field.widget.render("primary_genre", 1)
             or '<option value="1" selected>One</option>'
             in not_required_field.widget.render("primary_genre", 1)
-        ), (not_required_field.widget.render("primary_genre", 1))
+        ), not_required_field.widget.render(
+            "primary_genre", 1
+        )
 
     def test_many_selected_option(self, db, genres):
         field = HeavySelect2MultipleWidgetForm().fields["genres"]
@@ -434,6 +437,15 @@ class TestModelSelect2Mixin(TestHeavySelect2Mixin):
         widget.model = None
         widget.queryset = Genre.objects.all()
         assert isinstance(widget.get_queryset(), QuerySet)
+
+    def test_result_from_instance_ModelSelect2Widget(self, genres):
+        widget = ModelSelect2Widget()
+        widget.model = Genre
+        genre = Genre.objects.first()
+        assert widget.result_from_instance(genre, request=None) == {
+            "id": genre.pk,
+            "text": str(genre),
+        }
 
     def test_tag_attrs_Select2Widget(self):
         widget = Select2Widget()
@@ -738,7 +750,7 @@ class TestAddressChainedSelect2Widget:
         assert len(city_names_from_browser) != City.objects.count()
         assert city_names_from_browser == city_names_from_db
 
-        # selecting a city reaaly does it
+        # selecting a city really does it
         city_option = driver.find_element(
             By.CSS_SELECTOR, ".select2-results li:nth-child(2)"
         )
@@ -820,3 +832,44 @@ class TestAddressChainedSelect2Widget:
             )
         )
         assert city2_container.text == ""
+
+
+@pytest.fixture(
+    name="widget",
+    params=[
+        (Select2Widget, {}),
+        (HeavySelect2Widget, {"data_view": "heavy_data_1"}),
+        (HeavySelect2MultipleWidget, {"data_view": "heavy_data_1"}),
+        (ModelSelect2Widget, {}),
+        (ModelSelect2TagWidget, {}),
+    ],
+    ids=lambda p: p[0],
+)
+def widget_fixture(request):
+    widget_class, widget_kwargs = request.param
+    return widget_class(**widget_kwargs)
+
+
+@pytest.mark.parametrize(
+    "locale,expected",
+    [
+        ("fr-FR", "fr"),
+        # Some locales with a country code are natively supported by select2's i18n
+        ("pt-BR", "pt-BR"),
+        ("sr-Cyrl", "sr-Cyrl"),
+    ],
+    ids=repr,
+)
+def test_i18n_name_property_with_country_code_in_locale(widget, locale, expected):
+    """Test we fall back to the language code if the locale contain an unsupported country code."""
+    with translation.override(locale):
+        assert widget.i18n_name == expected
+
+
+def test_i18n_media_js_with_country_code_in_locale(widget):
+    translation.activate("fr-FR")
+    assert tuple(widget.media._js) == (
+        "admin/js/vendor/select2/select2.full.min.js",
+        "admin/js/vendor/select2/i18n/fr.js",
+        "django_select2/django_select2.js",
+    )

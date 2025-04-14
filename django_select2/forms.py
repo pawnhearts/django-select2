@@ -7,36 +7,43 @@ package is to render choices using Select2 JavaScript
 library, hence these components are meant to be used
 with choice fields.
 
-Widgets are generally of two types:
+Widgets are generally of tree types:
+Light, Heavy and Model.
 
-    1. **Light** --
-    They are not meant to be used when there
-    are too many options, say, in thousands.
-    This is because all those options would
-    have to be pre-rendered onto the page
-    and JavaScript would be used to search
-    through them. Said that, they are also one
-    the easiest to use. They are a
-    drop-in-replacement for Django's default
-    select widgets.
+Light
+~~~~~
 
-    2(a). **Heavy** --
-    They are suited for scenarios when the number of options
-    are large and need complex queries (from maybe different
-    sources) to get the options.
+They are not meant to be used when there
+are too many options, say, in thousands.
+This is because all those options would
+have to be pre-rendered onto the page
+and JavaScript would be used to search
+through them. Said that, they are also one
+the easiest to use. They are a
+drop-in-replacement for Django's default
+select widgets.
 
-    This dynamic fetching of options undoubtedly requires
-    Ajax communication with the server. Django-Select2 includes
-    a helper JS file which is included automatically,
-    so you need not worry about writing any Ajax related JS code.
-    Although on the server side you do need to create a view
-    specifically to respond to the queries.
+Heavy
+~~~~~
 
-    2(b). **Model** --
-    Model-widgets are a further specialized versions of Heavies.
-    These do not require views to serve Ajax requests.
-    When they are instantiated, they register themselves
-    with one central view which handles Ajax requests for them.
+They are suited for scenarios when the number of options
+are large and need complex queries (from maybe different
+sources) to get the options.
+
+This dynamic fetching of options undoubtedly requires
+Ajax communication with the server. Django-Select2 includes
+a helper JS file which is included automatically,
+so you need not worry about writing any Ajax related JS code.
+Although on the server side you do need to create a view
+specifically to respond to the queries.
+
+Model
+~~~~~
+
+Model-widgets are a further specialized versions of Heavies.
+These do not require views to serve Ajax requests.
+When they are instantiated, they register themselves
+with one central view which handles Ajax requests for them.
 
 Heavy and Model widgets have respectively the word 'Heavy' and 'Model' in
 their name.  Light widgets are normally named, i.e. there is no 'Light' word
@@ -46,30 +53,23 @@ in their names.
     :parts: 1
 
 """
+
 import operator
 import uuid
 from functools import reduce
 from itertools import chain
 from pickle import PicklingError  # nosec
 
-import django
 from django import forms
-from django.contrib.admin.widgets import SELECT2_TRANSLATIONS, AutocompleteMixin
+from django.contrib.admin.utils import lookup_spawns_duplicates
+from django.contrib.admin.widgets import AutocompleteMixin
 from django.core import signing
 from django.db.models import Q
 from django.forms.models import ModelChoiceIterator
 from django.urls import reverse
-from django.utils.translation import get_language
 
 from .cache import cache
 from .conf import settings
-
-if django.VERSION < (4, 0):
-    from django.contrib.admin.utils import (
-        lookup_needs_distinct as lookup_spawns_duplicates,
-    )
-else:
-    from django.contrib.admin.utils import lookup_spawns_duplicates
 
 
 class Select2Mixin:
@@ -89,7 +89,9 @@ class Select2Mixin:
     @property
     def i18n_name(self):
         """Name of the i18n file for the current language."""
-        return SELECT2_TRANSLATIONS.get(get_language())
+        from django.contrib.admin.widgets import get_select2_language
+
+        return get_select2_language()
 
     def build_attrs(self, base_attrs, extra_attrs=None):
         """Add select2 data attributes."""
@@ -127,9 +129,11 @@ class Select2Mixin:
         .. Note:: For more information visit
             https://docs.djangoproject.com/en/stable/topics/forms/media/#media-as-a-dynamic-property
         """
-        select2_js = [settings.SELECT2_JS] if settings.SELECT2_JS else []
+        select2_js = settings.SELECT2_JS if settings.SELECT2_JS else []
         select2_css = settings.SELECT2_CSS if settings.SELECT2_CSS else []
 
+        if isinstance(select2_js, str):
+            select2_js = [select2_js]
         if isinstance(select2_css, str):
             select2_css = [select2_css]
 
@@ -152,8 +156,12 @@ class Select2AdminMixin:
     def media(self):
         css = {**AutocompleteMixin(None, None).media._css}
         css["screen"].append("django_select2/django_select2.css")
+        js = [*Select2Mixin().media._js]
+        js.insert(
+            js.index("django_select2/django_select2.js"), "admin/js/jquery.init.js"
+        )
         return forms.Media(
-            js=Select2Mixin().media._js,
+            js=js,
             css=css,
         )
 
@@ -204,7 +212,7 @@ class Select2MultipleWidget(Select2Mixin, forms.SelectMultiple):
 
 class Select2TagWidget(Select2TagMixin, Select2Mixin, forms.SelectMultiple):
     """
-    Select2 drop in widget for for tagging.
+    Select2 drop in widget with tagging support. It allows to dynamically create new options from text input by the user.
 
     Example for :class:`.django.contrib.postgres.fields.ArrayField`::
 
@@ -227,6 +235,8 @@ class HeavySelect2Mixin:
     """Mixin that adds select2's AJAX options and registers itself on Django's cache."""
 
     dependent_fields = {}
+    data_view = None
+    data_url = None
 
     def __init__(self, attrs=None, choices=(), **kwargs):
         """
@@ -247,14 +257,14 @@ class HeavySelect2Mixin:
 
         self.uuid = str(uuid.uuid4())
         self.field_id = signing.dumps(self.uuid)
-        self.data_view = kwargs.pop("data_view", None)
-        self.data_url = kwargs.pop("data_url", None)
+        self.data_view = kwargs.pop("data_view", self.data_view)
+        self.data_url = kwargs.pop("data_url", self.data_url)
 
         dependent_fields = kwargs.pop("dependent_fields", None)
         if dependent_fields is not None:
             self.dependent_fields = dict(dependent_fields)
         if not (self.data_view or self.data_url):
-            raise ValueError('You must ether specify "data_view" or "data_url".')
+            raise ValueError('You must either specify "data_view" or "data_url".')
         self.userGetValTextFuncName = kwargs.pop("userGetValTextFuncName", "null")
 
     def get_url(self):
@@ -534,6 +544,28 @@ class ModelSelect2Mixin:
 
         """
         return str(obj)
+
+    def result_from_instance(self, obj, request):
+        """
+        Return a dictionary representing the object.
+
+        Can be overridden to change the result returned by
+        :class:`.AutoResponseView` for each object.
+
+        The request passed in will correspond to the request sent to the
+        :class:`.AutoResponseView` by the widget.
+
+        Example usage::
+
+            class MyWidget(ModelSelect2Widget):
+                def result_from_instance(obj, request):
+                    return {
+                        'id': obj.pk,
+                        'text': self.label_from_instance(obj),
+                        'extra_data': obj.extra_data,
+                    }
+        """
+        return {"id": obj.pk, "text": self.label_from_instance(obj)}
 
 
 class ModelSelect2Widget(ModelSelect2Mixin, HeavySelect2Widget):

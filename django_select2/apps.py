@@ -1,4 +1,5 @@
 """Django application configuration."""
+
 from django.apps import AppConfig
 
 
@@ -7,3 +8,6 @@ class Select2AppConfig(AppConfig):
 
     name = "django_select2"
     verbose_name = "Select2"
+
+    def ready(self):
+        from . import conf  # noqa

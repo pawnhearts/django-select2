@@ -1,4 +1,5 @@
 """JSONResponse views for model widgets."""
+
 from django.core import signing
 from django.core.signing import BadSignature
 from django.http import Http404, JsonResponse
@@ -20,6 +21,9 @@ class AutoResponseView(BaseListView):
         """
         Return a :class:`.django.http.JsonResponse`.
 
+        Each result will be rendered by the widget's
+        :func:`django_select2.forms.ModelSelect2Mixin.result_from_instance` method.
+
         Example::
 
             {
@@ -40,7 +44,7 @@ class AutoResponseView(BaseListView):
         return JsonResponse(
             {
                 "results": [
-                    {"text": self.widget.label_from_instance(obj), "id": obj.pk}
+                    self.widget.result_from_instance(obj, request)
                     for obj in context["object_list"]
                 ],
                 "more": context["page_obj"].has_next(),
